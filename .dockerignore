@@ -3,5 +3,8 @@
 **/.mypy_cache/
 *.py[cod]
 .venv/
+.git
 .env
+.env.*
+.coverage
 tests/

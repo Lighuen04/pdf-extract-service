@@ -13,8 +13,9 @@ FROM python:3.14-slim AS runtime
 
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    tesseract-ocr tesseract-ocr-eng tesseract-ocr-spa \
-    && rm -rf /var/lib/apt/lists/* \
+    tesseract-ocr tesseract-ocr-eng tesseract-ocr-spa zlib1g \
+    && /usr/local/bin/python -m pip uninstall --yes pip \
+    && rm -rf /usr/local/lib/python3.14/ensurepip /var/lib/apt/lists/* \
     && addgroup --system appgroup \
     && adduser --system --ingroup appgroup --home /home/appuser appuser
 

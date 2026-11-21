@@ -2,6 +2,8 @@
 
 Microservicio independiente derivado de `services/extract` de [pdf-extractext](https://github.com/Gianluca-gitea/pdf-extractext/tree/0123464/services/extract). Extrae texto y Markdown con PyMuPDF, infiere encabezados por tamaño de fuente y ofrece OCR opcional con Tesseract.
 
+El sistema tiene cuatro repositorios. **Documents** almacena y recupera PDFs. **ExtractServices** procesa el PDF recibido y devuelve su texto. El **orquestador** coordina los servicios y Traefik. La **GUI** presenta los resultados.
+
 ## Ejecutar
 
 Desde la raíz del repositorio:
@@ -45,7 +47,7 @@ En PowerShell, usar `curl.exe`. Un archivo vacío, ilegible o corrupto devuelve 
 
 `main.py`, `pdf_service.py`, `settings.py` y `logging_config.py` recuperan la organización del servicio original. `uploads.py` encapsula la lectura HTTP acotada, `extraction_pool.py` administra el trabajo y `server.py` configura Uvicorn.
 
-- **Bulkhead y backpressure.** Las dos rutas comparten un pool que FastAPI abre y cierra en el lifespan. El límite cuenta cargas en curso, solicitudes en cola y extracciones activas. La saturación devuelve 503 con `Retry-After: 1` antes de recibir otro PDF.
+- **Concurrencia y saturaci?n.** Las dos rutas comparten un pool que FastAPI abre y cierra en el lifespan. El límite cuenta cargas en curso, solicitudes en cola y extracciones activas. La saturación devuelve 503 con `Retry-After: 1` antes de recibir otro PDF.
 - **Timeout y aislamiento.** El 504 vence la espera HTTP. Un trabajo en cola se retira. Uno activo conserva su cupo hasta terminar. Una extracción fallida deja el pool disponible para las siguientes, salvo que el executor de procesos quede inutilizable. Se usa un hilo dedicado por defecto y procesos al habilitar varios workers, porque PyMuPDF no admite uso concurrente desde varios hilos.
 - **Apagado y health checks.** Uvicorn drena las solicitudes. El lifespan rechaza nuevas extracciones, despierta las que esperan y aguarda las activas hasta el plazo configurado. Un hilo bloqueado puede sobrevivir al plazo del lifespan, por lo que el supervisor debe aplicar un límite externo. Liveness sigue respondiendo durante la saturación y readiness indica que se agotó la capacidad.
 - **Gateway y orquestador.** Gestionan rate limiting, límites y plazos de subida, reintentos con backoff, circuit breaker y coordinación distribuida. Un 504 puede dejar un trabajo en ejecución y debe tenerse en cuenta antes de reintentar.
@@ -72,3 +74,9 @@ La división entre HTTP, procesamiento y ciclo de vida del pool aplica responsab
 ## Verificación
 
 En Windows, 64 pruebas pasaron con 95,32 % de cobertura. Se omitió la prueba de OCR bilingüe porque la instalación local carecía de español. mypy y Flake8 pasaron. Una imagen construida y ejecutada con Docker quedó healthy y ambas rutas de extracción devolvieron texto de un PDF de imagen usando OCR con inglés y español.
+- **Pruebas.** La l?nea base pas? 64 pruebas con 95,32 % de cobertura. Con el lock actualizado pasaron 65 con 96,01 % de cobertura. mypy y Flake8 pasaron. La prueba local de OCR biling?e se omiti? porque Windows carec?a de espa?ol. En Docker, el usuario sin privilegios, las tres rutas de salud y las dos rutas de extracci?n se verificaron con dos workers y un PDF de imagen de dos p?ginas con OCR `eng+spa`.
+
+### Imagen auditada el 20 de noviembre de 2026
+
+- **Correcciones.** El Dockerfile instala el `zlib1g` corregido de Debian y retira `pip` y `ensurepip` de la etapa final. La imagen anterior reportaba dos avisos de zlib y ocho hallazgos en Python relacionados con herramientas de instalaci?n. El reescaneo con Trivy 0.76.0 report? cero avisos Python, secretos detectados o hallazgos de configuraci?n. [Aviso de Debian para zlib](https://security-tracker.debian.org/tracker/CVE-2026-85091)
+- **Pendientes.** Trivy report? 506 hallazgos de paquetes Debian, incluidos 133 altos y 1 cr?tico, sin versi?n corregida indicada para esa imagen. El cr?tico es `CVE-2026-6653` en `libxml2`. Debian mantiene Trixie como vulnerable y clasifica el caso como menor, sin actualizaci?n de seguridad para esa versi?n. El servicio conserva la base estable. [Debian Security Tracker](https://security-tracker.debian.org/tracker/CVE-2026-6653)

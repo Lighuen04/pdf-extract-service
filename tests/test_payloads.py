@@ -1,3 +1,4 @@
+import fitz
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -64,3 +65,22 @@ def test_truncated_multipart_returns_400(pdf_bytes):
             content=body + pdf_bytes,
         )
     assert response.status_code == 400
+
+
+def test_encrypted_pdf_returns_public_error_and_releases_capacity(monkeypatch):
+    monkeypatch.setenv("APP_MAX_PENDING_EXTRACTIONS", "1")
+    with fitz.open() as doc:
+        doc.new_page()
+        pdf = doc.write(
+            encryption=fitz.PDF_ENCRYPT_AES_256,
+            owner_pw="owner-password",
+            user_pw="user-password",
+        )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/extract/text", content=pdf, headers={"Content-Type": "application/pdf"}
+        )
+        assert response.status_code == 400
+        assert response.json() == {"detail": "El contenido no corresponde a un PDF valido."}
+        assert client.get("/health/ready").status_code == 200

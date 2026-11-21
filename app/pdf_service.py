@@ -38,50 +38,25 @@ H1_SIZE_RATIO = 1.5
 H2_SIZE_RATIO = 1.2
 
 
-def compute_body_font_size(blocks: list[dict]) -> float:
-    """Calcula el tamaño de fuente más común (body text) ponderado por caracteres."""
-    chars_by_size: Counter[float] = Counter()
-    for block in blocks:
-        for line in block.get("lines", []):
-            for span in line.get("spans", []):
-                text = span.get("text", "").strip()
-                if text:
-                    chars_by_size[round(span["size"], 1)] += len(text)
-    return chars_by_size.most_common(1)[0][0] if chars_by_size else 0.0
+def _font_sizes(block: dict, counts: Counter[float]) -> float:
+    largest = 0.0
+    for line in block.get("lines", []):
+        for span in line.get("spans", []):
+            text = span.get("text", "").strip()
+            if text:
+                size = round(span["size"], 1)
+                counts[size] += len(text)
+                largest = max(largest, size)
+    return largest
 
 
-def block_to_markdown(block: dict, body_size: float, text: str = "") -> str:
-    """Convierte un bloque a Markdown detectando headings por tamaño de fuente.
-
-    Args:
-        block: Bloque del PDF
-        body_size: Tamaño de fuente base
-        text: Texto ya extraído (usado para OCR). Si está vacío, se extrae del bloque.
-    """
-    # Usar el texto proporcionado o extraer del bloque
-    if text:
-        block_text = text
-    else:
-        block_text = "".join(
-            span.get("text", "")
-            for line in block.get("lines", [])
-            for span in line.get("spans", [])
-        )
-
-    sizes = [
-        round(span["size"], 1)
-        for line in block.get("lines", [])
-        for span in line.get("spans", [])
-        if span.get("text", "").strip()
-    ]
-    ratio = max(sizes) / body_size if sizes and body_size > 0 else 0
-
-    clean_text = block_text.replace("\n", " ")
+def _to_markdown(text: str, largest: float, body_size: float) -> str:
+    ratio = largest / body_size if body_size > 0 else 0
     if ratio >= H1_SIZE_RATIO:
-        return f"# {clean_text}"
+        return "# " + text.replace("\n", " ")
     if ratio >= H2_SIZE_RATIO:
-        return f"## {clean_text}"
-    return block_text
+        return "## " + text.replace("\n", " ")
+    return text
 
 
 def extract_text_from_image_bytes(image_bytes: bytes | None, languages: str = "eng+spa") -> str:
@@ -144,29 +119,33 @@ def _extract(
     file_bytes: bytes, *, ocr_enabled: bool, ocr_languages: str, markdown: bool
 ) -> ExtractionResult:
     parts: list[str] = []
-    ocr_error = None
+    headings: list[tuple[str, float]] = []
+    font_counts: Counter[float] = Counter()
+    ocr_failed = False
     with _open_pdf(file_bytes) as doc:
-        blocks = _blocks(doc, ocr_enabled)
-        body_size = 0.0
-        if markdown:
-            all_blocks = list(blocks)
-            body_size = compute_body_font_size(all_blocks)
-            blocks = iter(all_blocks)
-
-        for block in blocks:
+        for block in _blocks(doc, ocr_enabled):
+            largest = _font_sizes(block, font_counts) if markdown else 0.0
             try:
                 text = _block_text(block, ocr_enabled, ocr_languages)
-            except OCRError as exc:
-                logger.warning("%s %s", exc, exc.__cause__)
-                ocr_error = exc
+            except OCRError:
+                logger.warning("OCR failed for an image block")
+                ocr_failed = True
                 continue
             if text:
-                parts.append(block_to_markdown(block, body_size, text) if markdown else text)
+                if markdown:
+                    headings.append((text, largest))
+                else:
+                    parts.append(text)
 
-        if not parts and ocr_error is not None:
-            raise ocr_error
-        separator = "\n\n" if markdown else "\n"
-        return ExtractionResult(content=separator.join(parts), page_count=doc.page_count)
+        if not (parts or headings) and ocr_failed:
+            raise OCRError("No se pudo completar el OCR.")
+        if markdown:
+            most_common = font_counts.most_common(1)
+            body_size = most_common[0][0] if most_common else 0.0
+            content = "\n\n".join(_to_markdown(text, size, body_size) for text, size in headings)
+        else:
+            content = "\n".join(parts)
+        return ExtractionResult(content=content, page_count=doc.page_count)
 
 
 def extract_text_from_pdf_bytes(
