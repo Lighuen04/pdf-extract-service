@@ -1,82 +1,61 @@
 # PDF Extract Service
 
-Microservicio independiente derivado de `services/extract` de [pdf-extractext](https://github.com/Gianluca-gitea/pdf-extractext/tree/0123464/services/extract). Extrae texto y Markdown con PyMuPDF, infiere encabezados por tamaño de fuente y ofrece OCR opcional con Tesseract.
+Microservicio independiente derivado de [`services/extract` de pdf-extractext](https://github.com/Gianluca-gitea/pdf-extractext/tree/0123464/services/extract). Extrae texto plano o Markdown de PDFs con PyMuPDF y ofrece OCR opcional con Tesseract. En el sistema Polyrepo, Documents almacena los PDF, el orquestador coordina los servicios, ExtractServices procesa los documentos y la GUI presenta los resultados. El despliegue centralizado y Traefik pertenecen al orquestador.
 
-El sistema tiene cuatro repositorios. **Documents** almacena y recupera PDFs. **ExtractServices** procesa el PDF recibido y devuelve su texto. El **orquestador** coordina los servicios y Traefik. La **GUI** presenta los resultados.
+## Ejecución
 
-## Ejecutar
-
-Desde la raíz del repositorio:
+Desde la raíz de este repositorio:
 
 ```sh
 docker build -t pdf-extract-service .
 docker run --rm --init --name pdf-extract -p 8000:8000 pdf-extract-service
 ```
 
-Para personalizar el contenedor, agregar `--env-file .env` antes del nombre de la imagen. El Dockerfile instala los idiomas inglés y español, ejecuta sin privilegios y comprueba `/health/live` con la biblioteca estándar. El Compose de despliegue y los límites de infraestructura pertenecen al orquestador. Si cambia `PORT`, adaptar el mapeo del puerto del contenedor.
-
-Con Python 3.14 y uv:
+Para desarrollo, con Python 3.14 y uv:
 
 ```sh
 uv sync --locked
 uv run --locked python -m app.server
-uv run --locked python -m pytest --cov=app --cov-fail-under=90
 ```
 
-El OCR local requiere Tesseract y los datos de los idiomas elegidos. `.env.example` documenta las variables de tamaño, capacidad, timeouts, OCR y logging. El OCR se desactiva por defecto y los idiomas admiten comas o `+`. Los logs salen por stdout en texto o JSON.
+El OCR está desactivado por defecto. `.env.example` describe las variables disponibles; si cambia `PORT`, hay que adaptar el puerto publicado. El contenedor instala Tesseract en inglés y español, corre sin privilegios y registra en stdout.
+
+La licencia del extractor es AGPL-3.0-only, conforme a la licencia del proyecto fuente; el texto está en [`LICENSE`](./LICENSE).
 
 ## API
 
-| Ruta | Comportamiento |
+| Ruta | Resultado |
 | --- | --- |
-| `POST /extract` | Markdown con los encabezados y saltos de línea de los párrafos. |
+| `POST /extract` | Markdown con detección de encabezados. |
 | `POST /extract/text` | Texto plano en orden de lectura. |
-| `GET /health` y `GET /health/live` | Devuelven `{"status":"ok"}`. |
-| `GET /health/ready` | Informa capacidad y cierre. Devuelve 503 cuando no acepta nuevos trabajos. |
+| `GET /health` | Compatibilidad: `{"status":"ok"}`. |
+| `GET /health/live` | Liveness. |
+| `GET /health/ready` | Capacidad y cierre; responde 503 si no admite trabajos. |
 
-Los POST aceptan un cuerpo `application/pdf` o un formulario multipart con campo `file`. Devuelven `{"content":"…","page_count":1}`.
+Las rutas POST aceptan `application/pdf` binario o multipart con el campo `file`; ambas devuelven `{"content":"…","page_count":1}`. El límite por PDF es 10 MiB. Por ejemplo:
 
 ```sh
 curl -fsS -H 'Content-Type: application/pdf' --data-binary '@documento.pdf' http://localhost:8000/extract/text
 curl -fsS -F 'file=@documento.pdf' http://localhost:8000/extract
 ```
 
-En PowerShell, usar `curl.exe`. Un archivo vacío, ilegible o corrupto devuelve 400. El límite por PDF devuelve 413 y se aplica durante la lectura, incluso sin `Content-Length`. Multipart usa archivos temporales con spool y admite hasta 1 MiB adicional para el cuerpo completo. Si falla el OCR y queda texto recuperado, ese texto se devuelve. Si el fallo impide recuperar texto, el servicio responde 500.
+## Resiliencia e integración
 
-## Organización y resiliencia
+Los cuatro patrones del proyecto se asignan fuera del extractor:
 
-`main.py`, `pdf_service.py`, `settings.py` y `logging_config.py` recuperan la organización del servicio original. `uploads.py` encapsula la lectura HTTP acotada, `extraction_pool.py` administra el trabajo y `server.py` configura Uvicorn.
-
-- **Concurrencia y saturaci?n.** Las dos rutas comparten un pool que FastAPI abre y cierra en el lifespan. El límite cuenta cargas en curso, solicitudes en cola y extracciones activas. La saturación devuelve 503 con `Retry-After: 1` antes de recibir otro PDF.
-- **Timeout y aislamiento.** El 504 vence la espera HTTP. Un trabajo en cola se retira. Uno activo conserva su cupo hasta terminar. Una extracción fallida deja el pool disponible para las siguientes, salvo que el executor de procesos quede inutilizable. Se usa un hilo dedicado por defecto y procesos al habilitar varios workers, porque PyMuPDF no admite uso concurrente desde varios hilos.
-- **Apagado y health checks.** Uvicorn drena las solicitudes. El lifespan rechaza nuevas extracciones, despierta las que esperan y aguarda las activas hasta el plazo configurado. Un hilo bloqueado puede sobrevivir al plazo del lifespan, por lo que el supervisor debe aplicar un límite externo. Liveness sigue respondiendo durante la saturación y readiness indica que se agotó la capacidad.
-- **Gateway y orquestador.** Gestionan rate limiting, límites y plazos de subida, reintentos con backoff, circuit breaker y coordinación distribuida. Un 504 puede dejar un trabajo en ejecución y debe tenerse en cuenta antes de reintentar.
-
-La división entre HTTP, procesamiento y ciclo de vida del pool aplica responsabilidad única y mantiene explícitas las dependencias. Texto y Markdown comparten apertura, validación y recorrido de bloques. Un único pool concreto, funciones reutilizadas y módulos planos evitan abstracciones que no aportan al servicio. Los límites de bytes controlan la carga comprimida. Dimensionar tamaño, cupos y workers en función de la RAM, porque un PDF puede expandirse al procesarlo.
-
-## Twelve-Factor App
-
-| Factor | Aplicación |
+| Patrón | Responsable |
 | --- | --- |
-| I. Código base | Un repositorio Git para construir el servicio. |
-| II. Dependencias | Paquetes Python fijados por `uv.lock` y dependencias del sistema declaradas en el Dockerfile. |
-| III. Configuración | Variables de entorno y `.env.example` para desarrollo. |
-| IV. Servicios de respaldo | La extracción solo requiere bibliotecas y Tesseract local. |
-| V. Build, release, run | La imagen se construye una vez y su configuración llega al ejecutarla. |
-| VI. Procesos | Capacidad y archivos temporales por instancia, sin persistencia de documentos. |
-| VII. Puerto | HTTP en `PORT`, por defecto 8000. |
-| VIII. Concurrencia | Cupos por proceso y escalado horizontal desde el orquestador. |
-| IX. Desechabilidad | Drenaje con plazo y terminación externa para trabajos nativos bloqueados. |
-| X. Paridad dev/prod | Mismo lock y comando de inicio. CI prueba la imagen final. |
-| XI. Logs | Eventos en stdout para su recolección. |
-| XII. Tareas administrativas | Pruebas y diagnósticos como comandos separados. El servicio carece de migraciones. |
+| Retry | Orquestador |
+| Circuit Breaker | Orquestador |
+| Rate Limit | Traefik |
+| Cache | Orquestador |
 
-## Verificación
+El extractor no implementa esos patrones. Conserva controles operativos propios: concurrencia acotada, timeout de extracción, rechazo 503 al saturarse, health checks y apagado controlado. `APP_MAX_PENDING_EXTRACTIONS` tiene un valor predeterminado de 16 y limita las tareas recibidas, en cola y activas **por cada proceso de API**, no globalmente. La orquestación debe considerar que una solicitud que vence puede dejar su trabajo nativo activo hasta que termine.
 
-En Windows, 64 pruebas pasaron con 95,32 % de cobertura. Se omitió la prueba de OCR bilingüe porque la instalación local carecía de español. mypy y Flake8 pasaron. Una imagen construida y ejecutada con Docker quedó healthy y ambas rutas de extracción devolvieron texto de un PDF de imagen usando OCR con inglés y español.
-- **Pruebas.** La l?nea base pas? 64 pruebas con 95,32 % de cobertura. Con el lock actualizado pasaron 65 con 96,01 % de cobertura. mypy y Flake8 pasaron. La prueba local de OCR biling?e se omiti? porque Windows carec?a de espa?ol. En Docker, el usuario sin privilegios, las tres rutas de salud y las dos rutas de extracci?n se verificaron con dos workers y un PDF de imagen de dos p?ginas con OCR `eng+spa`.
+## Diseño y seguridad
 
-### Imagen auditada el 20 de noviembre de 2026
+La aplicación mantiene módulos planos, estado efímero, configuración por entorno y logs en stdout. Valida la firma y apertura del PDF, rechaza documentos cifrados o inválidos, limita el tamaño de lectura incluso sin `Content-Length` y restringe el multipart. Los workers y el OCR tienen límites de espera; los logs no incluyen el contenido del PDF. Docker ejecuta como usuario no-root; CI usa permisos mínimos, dependencias Python bloqueadas y escanea la imagen.
 
-- **Correcciones.** El Dockerfile instala el `zlib1g` corregido de Debian y retira `pip` y `ensurepip` de la etapa final. La imagen anterior reportaba dos avisos de zlib y ocho hallazgos en Python relacionados con herramientas de instalaci?n. El reescaneo con Trivy 0.76.0 report? cero avisos Python, secretos detectados o hallazgos de configuraci?n. [Aviso de Debian para zlib](https://security-tracker.debian.org/tracker/CVE-2026-85091)
-- **Pendientes.** Trivy report? 506 hallazgos de paquetes Debian, incluidos 133 altos y 1 cr?tico, sin versi?n corregida indicada para esa imagen. El cr?tico es `CVE-2026-6653` en `libxml2`. Debian mantiene Trixie como vulnerable y clasifica el caso como menor, sin actualizaci?n de seguridad para esa versi?n. El servicio conserva la base estable. [Debian Security Tracker](https://security-tracker.debian.org/tracker/CVE-2026-6653)
+Los límites de bytes no garantizan un límite equivalente de memoria o CPU al procesar un PDF; dimensionar el tamaño y los workers según la memoria disponible. La autenticación y los límites globales pertenecen a la infraestructura/orquestador.
+
+En la verificación local del 20 de noviembre de 2026, `pip-audit` no encontró vulnerabilidades conocidas en los paquetes Python bloqueados. Trivy 0.76.0 encontró 134 vulnerabilidades HIGH/CRITICAL en paquetes Debian de la imagen (133 HIGH y 1 CRITICAL), todas sin versión corregida indicada en ese escaneo; no se detectaron vulnerabilidades corregibles de esas severidades. El hallazgo crítico `CVE-2026-6653` afecta a `libxml2`, que está enlazado por Tesseract; el extractor entrega imágenes extraídas del PDF al OCR y no se identificó una ruta de entrada XML específica. Esto no demuestra que los hallazgos sean inalcanzables: se mantienen como riesgo abierto del sistema base. CI conserva el informe completo de Trivy como artefacto y falla por hallazgos HIGH/CRITICAL corregibles.

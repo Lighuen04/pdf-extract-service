@@ -1,10 +1,9 @@
 [project]
-name = "pdf-extractext-extract"
+name = "pdf-extract-service"
 version = "0.1.0"
 description = "Microservicio sin estado que extrae texto y Markdown de PDFs"
 requires-python = ">=3.14"
-authors = [{name = "PDF Extract", email = "contact@pdfextract.local"}]
-license = {text = "MIT"}
+license = "AGPL-3.0-only"
 
 dependencies = [
     "fastapi>=0.120.0",

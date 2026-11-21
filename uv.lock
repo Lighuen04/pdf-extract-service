@@ -354,7 +354,7 @@ wheels = [
 ]
 
 [[package]]
-name = "pdf-extractext-extract"
+name = "pdf-extract-service"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

@@ -54,13 +54,28 @@ jobs:
           docker exec pdf-extract-test python -c "import os; from urllib.request import urlopen; assert os.getuid() != 0; urlopen('http://127.0.0.1:8000/health/ready', timeout=2).close()"
           docker exec pdf-extract-test tesseract --list-langs | grep -x eng
           docker exec pdf-extract-test tesseract --list-langs | grep -x spa
-      - name: Scan the production image
+      - name: Scan the production image and generate a full report
         run: |
           docker save -o "$RUNNER_TEMP/pdf-extract-service.tar" pdf-extract-service
-          docker run --rm --mount "type=bind,source=$RUNNER_TEMP,target=/audit,readonly" \
+          mkdir -p "$RUNNER_TEMP/trivy-cache"
+          docker run --rm --mount "type=bind,source=$RUNNER_TEMP,target=/audit" \
+            --mount "type=bind,source=$RUNNER_TEMP/trivy-cache,target=/root/.cache/trivy" \
+            ghcr.io/aquasecurity/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222 image --input /audit/pdf-extract-service.tar \
+            --timeout 10m --no-progress --scanners vuln,secret --image-config-scanners misconfig,secret \
+            --format json --output /audit/trivy-report.json
+          docker run --rm --mount "type=bind,source=$RUNNER_TEMP,target=/audit" \
+            --mount "type=bind,source=$RUNNER_TEMP/trivy-cache,target=/root/.cache/trivy" \
             ghcr.io/aquasecurity/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222 image --input /audit/pdf-extract-service.tar \
             --timeout 10m --no-progress --scanners vuln,secret --image-config-scanners misconfig,secret \
             --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+      - name: Upload full Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: ${{ runner.temp }}/trivy-report.json
+          if-no-files-found: warn
+          retention-days: 30
       - name: Print container logs
         if: failure()
         run: docker logs pdf-extract-test

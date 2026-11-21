@@ -4,7 +4,7 @@ FROM python:3.14-slim AS builder
 WORKDIR /app
 RUN pip install --no-cache-dir uv==0.11.2
 
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock LICENSE ./
 RUN uv sync --locked --no-dev --no-cache --no-install-project
 COPY app/ ./app/
 RUN uv sync --locked --no-dev --no-cache --no-editable
@@ -36,6 +36,6 @@ LABEL org.opencontainers.image.title="PDF Extract Service" \
       org.opencontainers.image.description="Extracción de texto y Markdown a partir de PDFs" \
       org.opencontainers.image.version="0.1.0" \
       org.opencontainers.image.source="https://github.com/Lighuen04/pdf-extract-service" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 
 CMD ["python", "-m", "app.server"]

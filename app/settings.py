@@ -14,7 +14,7 @@ DEFAULT_OCR_LANGUAGES = "eng+spa"
 
 @dataclass(frozen=True)
 class Settings:
-    app_name: str = "PDF Extractext Extract"
+    app_name: str = "PDF Extract Service"
     max_pdf_size_bytes: int = DEFAULT_MAX_PDF_SIZE_BYTES
     ocr_enabled: bool = False
     extract_workers: int = DEFAULT_EXTRACT_WORKERS
@@ -74,7 +74,7 @@ def get_settings() -> Settings:
         log_format = "text"
 
     return Settings(
-        app_name=os.getenv("APP_NAME", "PDF Extractext Extract"),
+        app_name=os.getenv("APP_NAME", "PDF Extract Service"),
         max_pdf_size_bytes=_positive_int_env("APP_MAX_PDF_SIZE_BYTES", DEFAULT_MAX_PDF_SIZE_BYTES),
         ocr_enabled=os.getenv("APP_OCR_ENABLED", "false").lower() == "true",
         extract_workers=_positive_int_env("APP_EXTRACT_WORKERS", DEFAULT_EXTRACT_WORKERS),

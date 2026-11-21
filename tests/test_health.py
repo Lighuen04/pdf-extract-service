@@ -17,4 +17,4 @@ def test_health_endpoint_returns_ok() -> None:
 
 
 def test_api_version_comes_from_package_metadata() -> None:
-    assert app.version == version("pdf-extractext-extract")
+    assert app.version == version("pdf-extract-service")

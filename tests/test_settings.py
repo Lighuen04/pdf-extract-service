@@ -7,12 +7,12 @@ from app.settings import (
 
 
 def test_get_settings_reads_environment_variables(monkeypatch) -> None:
-    monkeypatch.setenv("APP_NAME", "PDF Extractext Test")
+    monkeypatch.setenv("APP_NAME", "PDF Extract Service Test")
     monkeypatch.setenv("APP_MAX_PDF_SIZE_BYTES", "1234")
 
     settings = get_settings()
 
-    assert settings.app_name == "PDF Extractext Test"
+    assert settings.app_name == "PDF Extract Service Test"
     assert settings.max_pdf_size_bytes == 1234
 
 
@@ -76,7 +76,7 @@ def test_get_settings_uses_default_for_invalid_extraction_limits(monkeypatch) ->
     assert settings.max_pending_extractions == DEFAULT_MAX_PENDING_EXTRACTIONS
 
 
-def test_get_settings_allows_100_pending_extractions_by_default(monkeypatch) -> None:
+def test_get_settings_uses_conservative_pending_limit_by_default(monkeypatch) -> None:
     monkeypatch.delenv("APP_MAX_PENDING_EXTRACTIONS", raising=False)
 
     assert get_settings().max_pending_extractions == 100
