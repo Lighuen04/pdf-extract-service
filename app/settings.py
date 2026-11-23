@@ -9,6 +9,7 @@ DEFAULT_EXTRACT_WORKERS = 1
 DEFAULT_MAX_PENDING_EXTRACTIONS = 100
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_EXTRACTION_TIMEOUT_SECONDS = 30
+DEFAULT_UPLOAD_TIMEOUT_SECONDS = 30
 DEFAULT_OCR_LANGUAGES = "eng+spa"
 
 
@@ -24,6 +25,7 @@ class Settings:
     extraction_timeout_seconds: int = DEFAULT_EXTRACTION_TIMEOUT_SECONDS
     shutdown_timeout_seconds: int = 30
     ocr_languages: str = DEFAULT_OCR_LANGUAGES
+    upload_timeout_seconds: int = DEFAULT_UPLOAD_TIMEOUT_SECONDS
 
 
 def _positive_int_env(name: str, default: int) -> int:
@@ -88,4 +90,7 @@ def get_settings() -> Settings:
         ),
         shutdown_timeout_seconds=_positive_int_env("APP_SHUTDOWN_TIMEOUT_SECONDS", 30),
         ocr_languages=_ocr_languages_env(),
+        upload_timeout_seconds=_positive_int_env(
+            "APP_UPLOAD_TIMEOUT_SECONDS", DEFAULT_UPLOAD_TIMEOUT_SECONDS
+        ),
     )

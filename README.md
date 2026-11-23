@@ -39,6 +39,10 @@ curl -fsS -H 'Content-Type: application/pdf' --data-binary '@documento.pdf' http
 curl -fsS -F 'file=@documento.pdf' http://localhost:8000/extract
 ```
 
+Markdown infiere los encabezados de cada bloque comparando su mayor tamaño de fuente con el tamaño predominante del documento. Separa los bloques como párrafos y conserva los saltos de línea del cuerpo. Las fuentes mixtas pueden producir encabezados imprecisos y la conversión no reconstruye tablas ni diseños complejos.
+
+Con OCR habilitado, un fallo en un bloque de imagen se registra y se omite ese bloque. Si se obtuvo texto nativo o texto de otras imágenes, la API devuelve HTTP 200 con el contenido disponible, que puede ser parcial. Si hubo un fallo de OCR y no se obtuvo texto, devuelve HTTP 500 con un mensaje genérico. Un documento sin texto ni fallos devuelve contenido vacío.
+
 ## Resiliencia e integración
 
 Los cuatro patrones del proyecto se asignan fuera del extractor:
@@ -50,7 +54,9 @@ Los cuatro patrones del proyecto se asignan fuera del extractor:
 | Rate Limit | Traefik |
 | Cache | Orquestador |
 
-El extractor no implementa esos patrones. Conserva controles operativos propios: concurrencia acotada, timeout de extracción, rechazo 503 al saturarse, health checks y apagado controlado. `APP_MAX_PENDING_EXTRACTIONS` tiene un valor predeterminado de 16 y limita las tareas recibidas, en cola y activas **por cada proceso de API**, no globalmente. La orquestación debe considerar que una solicitud que vence puede dejar su trabajo nativo activo hasta que termine.
+El extractor devuelve HTTP 503 al saturarse y ofrece health checks y apagado controlado. `APP_MAX_PENDING_EXTRACTIONS` vale 100 por defecto y limita, por proceso de API, la suma de las solicitudes en recepción, las que esperan un worker y las extracciones activas. `APP_EXTRACT_WORKERS` vale 1 por defecto y limita cuántas extracciones pueden ejecutarse a la vez.
+
+`APP_UPLOAD_TIMEOUT_SECONDS` limita la recepción del cuerpo a 30 segundos por defecto. Si vence, la API devuelve HTTP 408 y libera el cupo. `APP_EXTRACTION_TIMEOUT_SECONDS` vale 30 segundos por defecto y empieza después de la recepción, incluyendo la espera por un worker. Si vence, la API devuelve HTTP 504. Un trabajo nativo que ya empezó conserva su cupo hasta que termina.
 
 ## Diseño y seguridad
 

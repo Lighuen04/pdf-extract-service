@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from contextlib import asynccontextmanager
-from functools import partial
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -117,7 +117,17 @@ async def _run_extraction(
     request: Request, extractor: Callable[..., ExtractionResult]
 ) -> ExtractionResult:
     settings: Settings = request.app.state.settings
-    read_payload = partial(read_pdf_payload, request, settings.max_pdf_size_bytes)
+
+    async def read_payload() -> bytes:
+        timeout = asyncio.timeout(settings.upload_timeout_seconds)
+        try:
+            async with timeout:
+                return await read_pdf_payload(request, settings.max_pdf_size_bytes)
+        except TimeoutError as exc:
+            if not timeout.expired():
+                raise
+            raise HTTPException(408, "Tiempo de recepción del PDF excedido.") from exc
+
     pool: ExtractionPool = request.app.state.extraction_pool
     return await pool.run(extractor, read_payload)
 

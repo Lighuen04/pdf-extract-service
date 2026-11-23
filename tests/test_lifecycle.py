@@ -122,3 +122,42 @@ async def test_uploads_share_admission_before_the_body_is_read(monkeypatch, pdf_
         finally:
             release.set()
         assert (await first).status_code == 200
+
+
+@pytest.mark.parametrize("multipart", [False, True])
+async def test_upload_timeout_releases_admission_without_starting_extraction(
+    monkeypatch, pdf_bytes, multipart
+):
+    monkeypatch.setenv("APP_MAX_PENDING_EXTRACTIONS", "1")
+    monkeypatch.setenv("APP_UPLOAD_TIMEOUT_SECONDS", "1")
+    calls = []
+
+    def extract(data, **kwargs):
+        calls.append(data)
+        return ExtractionResult(content="texto", page_count=1)
+
+    monkeypatch.setattr("app.main.extract_text_from_pdf_bytes", extract)
+
+    async def incomplete_upload():
+        if multipart:
+            yield (
+                b'--pdf\r\nContent-Disposition: form-data; name="file"; filename="test.pdf"'
+                b"\r\n\r\n" + pdf_bytes
+            )
+        else:
+            yield pdf_bytes
+        await asyncio.Event().wait()
+
+    media_type = "multipart/form-data; boundary=pdf" if multipart else "application/pdf"
+    async with app.router.lifespan_context(app), client_for_app() as client:
+        async with asyncio.timeout(4):
+            response = await client.post(
+                "/extract/text", content=incomplete_upload(), headers={"Content-Type": media_type}
+            )
+        assert response.status_code == 408
+        assert not calls
+        ready = await client.get("/health/ready")
+        assert ready.status_code == 200
+        assert ready.json()["pending_extractions"] == 0
+        assert (await client.post("/extract/text", content=pdf_bytes)).status_code == 200
+        assert calls == [pdf_bytes]

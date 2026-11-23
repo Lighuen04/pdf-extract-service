@@ -17,8 +17,9 @@ def test_normalize_ocr_languages(monkeypatch, value):
     assert get_settings().ocr_languages == "eng+spa"
 
 
+@pytest.mark.parametrize("endpoint", ["/extract", "/extract/text"])
 def test_ocr_failure_preserves_native_text_and_surfaces_when_no_text(
-    monkeypatch, pdf_with_image, build_pdf
+    monkeypatch, pdf_with_image, build_pdf, endpoint
 ):
     monkeypatch.setenv("APP_OCR_ENABLED", "true")
 
@@ -33,11 +34,13 @@ def test_ocr_failure_preserves_native_text_and_surfaces_when_no_text(
         image_only = doc.write()
 
     with TestClient(app) as client:
-        assert (
-            client.post("/extract/text", content=pdf_with_image).json()["content"] == "Texto normal"
-        )
-        assert client.post("/extract/text", content=image_only).status_code == 500
-        assert client.post("/extract/text", content=build_pdf([])).json()["content"] == ""
+        partial = client.post(endpoint, content=pdf_with_image)
+        assert partial.status_code == 200
+        assert partial.json() == {"content": "Texto normal", "page_count": 1}
+        failed = client.post(endpoint, content=image_only)
+        assert failed.status_code == 500
+        assert failed.json() == {"detail": "No se pudo completar el OCR."}
+        assert client.post(endpoint, content=build_pdf([])).json()["content"] == ""
 
 
 @pytest.mark.integration
