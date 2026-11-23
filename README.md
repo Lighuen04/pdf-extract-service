@@ -22,6 +22,18 @@ El OCR está desactivado por defecto. `.env.example` describe las variables disp
 
 La licencia del extractor es AGPL-3.0-only, conforme a la licencia del proyecto fuente; el texto está en [`LICENSE`](./LICENSE).
 
+## Imagen Docker en GHCR
+
+Después de un push a `master`, CI publica `latest` y una etiqueta con el SHA completo del commit si pasan los jobs `test` y `container`.
+
+```sh
+docker pull ghcr.io/lighuen04/pdf-extract-service:latest
+```
+
+El servicio `extract` del Compose central ya usa esa imagen por defecto. Desde el directorio del orquestador, ejecutá `docker compose pull extract` para descargarla y `docker compose up -d extract` para aplicar la actualización. Para desplegar un commit específico, configurá `EXTRACT_IMAGE=ghcr.io/lighuen04/pdf-extract-service:<sha-completo>` en el `.env` del orquestador antes de ejecutar esos comandos.
+
+Si el paquete es privado, autenticá primero el host del orquestador con `docker login ghcr.io` usando un token personal clásico con permiso `read:packages` y acceso al paquete.
+
 ## API
 
 | Ruta | Resultado |
